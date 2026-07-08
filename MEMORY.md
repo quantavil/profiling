@@ -1,14 +1,14 @@
 # Project: Reddit Public Activity Analyser
 
 ## Overview
-A single-file Python script (`main.py`) that analyzes public posts and comments for a given Reddit username and produces a behavioral profile, including subreddits breakdown, activity heatmaps, interest keywords, and timezone estimate.
+A Python package (`src/`) that analyzes public posts and comments for a given Reddit username and produces a behavioral profile, including subreddits breakdown, activity heatmaps, interest keywords, and timezone estimate.
 
 ## Structure
 /home/quantavil/Documents/Project/profiling/
-└── main.py          # Entry point and the entire logic for scraping and analyzing Reddit profiles.
+└── src/             # Package source containing all modular subpackages and configurations.
 
 ## Conventions
-- Single file script using `urllib.request` to avoid third-party requests/BeautifulSoup.
+- Modular package under src/ with absolute/relative imports.
 - Clean parsing and simple statistics.
 
 ## Dependencies & Setup
