@@ -59,6 +59,36 @@ WORD_RE = re.compile(r"[a-zA-Z][a-zA-Z'\-]{2,}")
 
 
 
+def parse_reddit_score(text: str) -> int:
+    if not text:
+        return 0
+    text = text.lower().replace("points", "").replace("point", "").replace(",", "").strip()
+    if text == "•" or "hidden" in text:
+        return 0
+    match = re.match(r"([-+]?[0-9.]+)\s*([km]?)", text)
+    if not match:
+        return 0
+    try:
+        num = float(match.group(1))
+        suffix = match.group(2)
+        if suffix == "k":
+            num *= 1000
+        elif suffix == "m":
+            num *= 1000000
+        return int(num)
+    except ValueError:
+        return 0
+
+
+def escape_markdown(text: str) -> str:
+    if not text:
+        return ""
+    escaped = text
+    for char in ["\\", "`", "*", "_", "#", "|"]:
+        escaped = escaped.replace(char, f"\\{char}")
+    return escaped
+
+
 def score_stats(items):
     scores = [i.get("score", 0) or 0 for i in items]
     if not scores:
@@ -77,7 +107,7 @@ def is_deleted_or_removed(item):
     body = item.get("body") or ""
     author = item.get("author") or ""
     
-    placeholders = {"[deleted]", "[removed]", "deleted", "removed"}
+    placeholders = {"[deleted]", "[removed]"}
     
     if selftext.strip() in placeholders or body.strip() in placeholders:
         return True
@@ -90,8 +120,22 @@ def fetch_about_fallback(username):
     try:
         from scrapling.fetchers import StealthyFetcher
         url = f"https://old.reddit.com/user/{username}/"
-        r = StealthyFetcher.fetch(url)
-        if r.status != 200:
+        
+        retries = 3
+        pause = 2
+        r = None
+        for attempt in range(1, retries + 1):
+            try:
+                r = StealthyFetcher.fetch(url)
+                if r.status == 200:
+                    break
+                print(f"  [old.reddit] fetch_about attempt {attempt} failed: Status {r.status}", file=sys.stderr)
+                time.sleep(pause * attempt)
+            except Exception as e:
+                print(f"  [old.reddit] fetch_about attempt {attempt} failed with error: {e}", file=sys.stderr)
+                time.sleep(pause * attempt)
+                
+        if not r or r.status != 200:
             return None
         
         # parse created_utc
@@ -132,8 +176,6 @@ def fetch_about_fallback(username):
             "comment_karma": comment_karma,
             "total_karma": link_karma + comment_karma,
             "is_mod": is_mod,
-            "verified": False,
-            "has_verified_email": False,
         }
     except Exception as e:
         print(f"  Fallback fetch_about failed: {e}", file=sys.stderr)
@@ -154,14 +196,24 @@ def fetch_listing_old_reddit(username, kind, limit=1000):
     url = f"https://old.reddit.com/user/{username}/{endpoint}/"
     items = []
     
+    retries = 3
+    pause = 2
+    
     while len(items) < limit:
-        try:
-            r = StealthyFetcher.fetch(url)
-            if r.status != 200:
-                print(f"  [old.reddit] Failed to fetch: {r.status}", file=sys.stderr)
-                break
-        except Exception as e:
-            print(f"  [old.reddit] Error fetching {url}: {e}", file=sys.stderr)
+        r = None
+        for attempt in range(1, retries + 1):
+            try:
+                r = StealthyFetcher.fetch(url)
+                if r.status == 200:
+                    break
+                print(f"  [old.reddit] fetch attempt {attempt} failed: Status {r.status}", file=sys.stderr)
+                time.sleep(pause * attempt)
+            except Exception as e:
+                print(f"  [old.reddit] fetch attempt {attempt} failed with error: {e}", file=sys.stderr)
+                time.sleep(pause * attempt)
+                
+        if not r or r.status != 200:
+            print(f"  [old.reddit] Failed to fetch {url}", file=sys.stderr)
             break
             
         things = r.css(".thing")
@@ -171,6 +223,7 @@ def fetch_listing_old_reddit(username, kind, limit=1000):
         for thing in things:
             fullname = thing.attrib.get("data-fullname")
             subreddit = thing.attrib.get("data-subreddit")
+            permalink = thing.attrib.get("data-permalink", "")
             
             # created_utc
             dt_str = thing.css("time::attr(datetime)").get()
@@ -185,18 +238,14 @@ def fetch_listing_old_reddit(username, kind, limit=1000):
             score_text = thing.css(".score.unvoted::text").get()
             if not score_text:
                 score_text = thing.css(".score::text").get()
-            score = 0
-            if score_text:
-                try:
-                    score = int(score_text.replace("points", "").replace("point", "").strip())
-                except Exception:
-                    pass
+            score = parse_reddit_score(score_text)
             
             item = {
                 "name": fullname,
                 "created_utc": created_utc,
                 "subreddit": subreddit,
                 "score": score,
+                "permalink": permalink,
             }
             
             if kind == "comments":
@@ -221,11 +270,58 @@ def fetch_listing_old_reddit(username, kind, limit=1000):
     return items[:limit]
 
 
+def fetch_listing_pullpush(username, kind, limit=1000):
+    endpoint = "submission" if kind == "submitted" else "comment"
+    items = []
+    before = None
+    headers = HEADERS
+    retries = 3
+    pause = 2
+    
+    while len(items) < limit:
+        url = f"https://api.pullpush.io/reddit/search/{endpoint}/?author={username}&limit=100"
+        if before:
+            url += f"&before={before}"
+            
+        data = None
+        for attempt in range(1, retries + 1):
+            req = urllib.request.Request(url, headers=headers)
+            try:
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    break
+            except Exception as e:
+                print(f"  [Pullpush] Attempt {attempt} failed: {e}", file=sys.stderr)
+                if attempt < retries:
+                    time.sleep(pause * attempt)
+                    
+        if not data:
+            print(f"  [Pullpush] Failed to fetch {url} after {retries} attempts.", file=sys.stderr)
+            break
+            
+        children = data.get("data", [])
+        if not children:
+            break
+            
+        items.extend(children)
+        valid_utcs = [c["created_utc"] for c in children if c.get("created_utc")]
+        if not valid_utcs:
+            break
+        before = min(valid_utcs)
+        print(f"  [Pullpush] {len(items)} fetched...")
+        if len(children) < 100:
+            break
+            
+        time.sleep(1.0)
+        
+    return items[:limit]
+
+
 def fetch_listing_arctic_shift(username, kind, limit=1000):
     endpoint = "posts" if kind == "submitted" else "comments"
     items = []
     before = None
-    headers = {"User-Agent": "Mozilla/5.0"}
+    headers = HEADERS
     retries = 3
     pause = 2
     
@@ -281,27 +377,37 @@ def _get_fullname(item, kind):
     return None
 
 
-def fetch_listing(username, kind, limit=1000, source="both"):
+def fetch_listing(username, kind, limit=1000, source="all"):
     """kind: 'submitted' or 'comments'."""
     items = []
     
-    if source in ("both", "reddit"):
+    if source in ("all", "reddit"):
         print(f"Fetching {kind} from old.reddit.com...")
         scraped_items = fetch_listing_old_reddit(username, kind, limit)
         if scraped_items:
             items.extend(scraped_items)
             
-    if source in ("both", "arctic"):
+    if source in ("all", "pullpush"):
+        print(f"Fetching {kind} from Pullpush API...")
+        pullpush_items = fetch_listing_pullpush(username, kind, limit)
+        if pullpush_items:
+            existing_names = {_get_fullname(i, kind) for i in items if _get_fullname(i, kind)}
+            for item in pullpush_items:
+                name = _get_fullname(item, kind)
+                if name and name not in existing_names:
+                    items.append(item)
+                    existing_names.add(name)
+
+    if source in ("all", "arctic"):
         print(f"Fetching {kind} from Arctic Shift API...")
         arctic_items = fetch_listing_arctic_shift(username, kind, limit)
         if arctic_items:
             existing_names = {_get_fullname(i, kind) for i in items if _get_fullname(i, kind)}
             for item in arctic_items:
                 name = _get_fullname(item, kind)
-                if not name or name not in existing_names:
+                if name and name not in existing_names:
                     items.append(item)
-                    if name:
-                        existing_names.add(name)
+                    existing_names.add(name)
             
     return items[:limit]
 
@@ -325,9 +431,13 @@ def _hour_weekday(created_utc):
 
 
 def analyse(about, posts, comments):
-    # Filter out deleted/removed content first
-    valid_posts = [p for p in posts if not is_deleted_or_removed(p)]
-    valid_comments = [c for c in comments if not is_deleted_or_removed(c)]
+    for p in posts:
+        p["_is_deleted"] = is_deleted_or_removed(p)
+    for c in comments:
+        c["_is_deleted"] = is_deleted_or_removed(c)
+
+    valid_posts = posts
+    valid_comments = comments
     all_valid_items = valid_posts + valid_comments
 
     prof = {
@@ -351,9 +461,9 @@ def analyse(about, posts, comments):
         "posts": len(posts),
         "comments": len(comments),
         "total": len(posts) + len(comments),
-        "valid_posts": len(valid_posts),
-        "valid_comments": len(valid_comments),
-        "valid_total": len(all_valid_items),
+        "valid_posts": sum(1 for p in posts if not p["_is_deleted"]),
+        "valid_comments": sum(1 for c in comments if not c["_is_deleted"]),
+        "valid_total": sum(1 for i in all_valid_items if not i["_is_deleted"]),
     }
 
     # --- subreddit breakdown ---
@@ -443,11 +553,15 @@ def analyse(about, posts, comments):
     def get_word_counter(posts_list, comments_list):
         words = Counter()
         for p in posts_list:
+            if p.get("_is_deleted"):
+                continue
             for field in ("title", "selftext"):
                 for m in WORD_RE.findall((p.get(field) or "").lower()):
                     if m not in STOPWORDS:
                         words[m] += 1
         for c in comments_list:
+            if c.get("_is_deleted"):
+                continue
             for m in WORD_RE.findall((c.get("body") or "").lower()):
                 if m not in STOPWORDS:
                     words[m] += 1
@@ -617,8 +731,8 @@ def render_markdown(username, prof):
             
             link_str = f"[Link](https://reddit.com{permalink})" if permalink else ""
             
-            deleted_tag = " [DELETED/REMOVED]" if is_deleted_or_removed(p) else ""
-            L.append(f"### {idx+1}. {title}{deleted_tag}\n")
+            deleted_tag = " [DELETED/REMOVED]" if p.get("_is_deleted") else ""
+            L.append(f"### {idx+1}. {escape_markdown(title)}{deleted_tag}\n")
             L.append(f"- **Date**: {p_date} | **Subreddit**: r/{sub} | **Score**: {score} {link_str}")
             if selftext:
                 indented_text = "\n".join(f"  > {line}" for line in selftext.splitlines())
@@ -641,7 +755,7 @@ def render_markdown(username, prof):
             
             link_str = f"[Link](https://reddit.com{permalink})" if permalink else ""
             
-            deleted_tag = " [DELETED/REMOVED]" if is_deleted_or_removed(c) else ""
+            deleted_tag = " [DELETED/REMOVED]" if c.get("_is_deleted") else ""
             L.append(f"### {idx+1}. Comment in r/{sub}{deleted_tag}\n")
             L.append(f"- **Date**: {c_date} | **Score**: {score} {link_str}")
             if body:
@@ -663,8 +777,8 @@ def main():
     p.add_argument("--infile", help="Analyse an existing scraper JSON dump instead of fetching")
     p.add_argument("--limit", type=int, default=1000, help="Max items per type when fetching")
     p.add_argument("--outdir", default="output", help="Output directory")
-    p.add_argument("--source", choices=["reddit", "arctic", "both"], default="both", 
-                   help="Data source: 'reddit' (standard API & old.reddit fallback), 'arctic' (Arctic Shift API), or 'both' (merge)")
+    p.add_argument("--source", choices=["reddit", "arctic", "pullpush", "all"], default="all", 
+                   help="Data source: 'reddit' (standard old.reddit scraping), 'arctic' (Arctic Shift API), 'pullpush' (Pullpush API), or 'all' (merge all)")
     p.add_argument("--user-agent", help="Custom User-Agent header to use for API requests")
     args = p.parse_args()
 
@@ -688,11 +802,18 @@ def main():
         else:
             username = args.username or derived_username
             
-        about = fetch_about(username) if args.username else None
+        about = fetch_about(username) if username else None
     else:
         if not args.username:
             p.error("provide a username or --infile")
         username = args.username.strip().lstrip("u/")
+        
+    # Username regex validation (guards against path traversal)
+    if not re.match(r"^[A-Za-z0-9_-]{3,20}$", username):
+        print(f"Error: Invalid or unsafe username '{username}'. Usernames must be 3-20 characters long and contain only letters, numbers, underscores, or hyphens.", file=sys.stderr)
+        sys.exit(1)
+
+    if not args.infile:
         print(f"Fetching public activity for u/{username} ...")
         about = fetch_about(username)
         if about is None:
