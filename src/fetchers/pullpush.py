@@ -13,7 +13,7 @@ def fetch_listing_pullpush(username, kind, limit=1000):
     pause = 2
     
     while len(items) < limit:
-        url = f"https://api.pullpush.io/reddit/search/{endpoint}/?author={username}&limit=100"
+        url = f"https://api.pullpush.io/reddit/search/{endpoint}/?author={username}&size=100"
         if before:
             url += f"&before={before}"
             
