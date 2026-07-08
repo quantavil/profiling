@@ -1,0 +1,89 @@
+/* Refined Editorial Tech-Journal Theme (Warm Charcoal & Amber) */
+
+/* Base font settings using Space Grotesk and Plus Jakarta Sans */
+body {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    background-color: #0f1013;
+    color: #e2e8f0;
+}
+
+h1, h2, h3, h4, h5, h6, .font-heading {
+    font-family: 'Space Grotesk', sans-serif;
+}
+
+/* Custom scrollbars - thin and clean */
+::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+}
+
+::-webkit-scrollbar-track {
+    background: #0f1013;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #252830;
+    border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #3e4452;
+}
+
+/* Alpine x-cloak */
+[x-cloak] {
+    display: none !important;
+}
+
+/* Premium Card (No glows or shadows, just flat, thin borders and structural depth) */
+.premium-card {
+    background: #15171c;
+    border: 1px solid #232731;
+    border-radius: 0.75rem;
+    transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.premium-card:hover {
+    border-color: #d97706; /* Solid Amber */
+}
+
+/* Heatmap container scroll fix */
+.heatmap-scroll-container {
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #232731 #0f1013;
+}
+
+/* Heatmap cell base transitions */
+.heatmap-cell {
+    transition: transform 0.1s ease;
+    cursor: pointer;
+}
+
+.heatmap-cell:hover {
+    transform: scale(1.1);
+    z-index: 10;
+}
+
+/* Compact Feed Item Layout (removes nested card padding) */
+.feed-item {
+    border-bottom: 1px solid #1f232b;
+    padding-top: 1rem;
+    padding-bottom: 1rem;
+    transition: background-color 0.15s ease;
+}
+
+.feed-item:last-child {
+    border-bottom: none;
+}
+
+.feed-item:hover {
+    background-color: rgba(21, 23, 28, 0.3);
+}
+
+/* Tag filter button highlight */
+.tag-btn-active {
+    background-color: #d97706 !important;
+    border-color: #d97706 !important;
+    color: #ffffff !important;
+}

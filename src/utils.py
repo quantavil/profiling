@@ -42,6 +42,11 @@ def is_deleted_or_removed(item: dict) -> bool:
         return True
     if author == "[deleted]":
         return True
+    # Detect common archive/API deletion indicators
+    if item.get("removed_by_category"):
+        return True
+    if item.get("deleted") is True or item.get("removed") is True:
+        return True
     return False
 
 

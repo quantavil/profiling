@@ -50,19 +50,69 @@ def estimate_tz(hour_totals):
 
 
 def analyse(about, posts, comments):
+    # Parse timestamps and sanitize permalinks for posts
+    valid_posts = []
     for p in posts:
+        cu = p.get("created_utc")
+        if not cu:
+            continue
+        try:
+            p["created_utc"] = float(cu)
+        except (ValueError, TypeError):
+            continue
+            
         p["_is_deleted"] = is_deleted_or_removed(p)
-    for c in comments:
-        c["_is_deleted"] = is_deleted_or_removed(c)
+        
+        # Ensure permalink starts with /
+        pl = p.get("permalink") or ""
+        if not pl:
+            sub = p.get("subreddit") or "reddit"
+            p_id = p.get("id") or (p.get("name") or "").split("_")[-1]
+            if p_id:
+                pl = f"/r/{sub}/comments/{p_id}/"
+        if pl and not pl.startswith("/"):
+            pl = "/" + pl
+        p["permalink"] = pl
+        
+        valid_posts.append(p)
 
-    valid_posts = posts
-    valid_comments = comments
+    # Parse timestamps and sanitize permalinks for comments
+    valid_comments = []
+    for c in comments:
+        cu = c.get("created_utc")
+        if not cu:
+            continue
+        try:
+            c["created_utc"] = float(cu)
+        except (ValueError, TypeError):
+            continue
+            
+        c["_is_deleted"] = is_deleted_or_removed(c)
+        
+        # Ensure permalink starts with /
+        pl = c.get("permalink") or ""
+        if not pl:
+            sub = c.get("subreddit") or "reddit"
+            c_id = c.get("id") or (c.get("name") or "").split("_")[-1]
+            link_id = c.get("link_id") or ""
+            link_clean = link_id.split("_")[-1] if "_" in link_id else ""
+            if c_id:
+                if link_clean:
+                    pl = f"/r/{sub}/comments/{link_clean}/_/{c_id}/"
+                else:
+                    pl = f"/r/{sub}/comments/{c_id}/"
+        if pl and not pl.startswith("/"):
+            pl = "/" + pl
+        c["permalink"] = pl
+        
+        valid_comments.append(c)
+
     all_valid_items = valid_posts + valid_comments
 
     prof = {
         "about": about,
-        "posts_raw": posts,
-        "comments_raw": comments,
+        "posts_raw": valid_posts,
+        "comments_raw": valid_comments,
     }
     
     ts = [i["created_utc"] for i in all_valid_items if i.get("created_utc")]
@@ -77,11 +127,11 @@ def analyse(about, posts, comments):
         prof["items_per_day"] = round(len(all_valid_items) / span_days, 2)
 
     prof["counts"] = {
-        "posts": len(posts),
-        "comments": len(comments),
-        "total": len(posts) + len(comments),
-        "valid_posts": sum(1 for p in posts if not p["_is_deleted"]),
-        "valid_comments": sum(1 for c in comments if not c["_is_deleted"]),
+        "posts": len(valid_posts),
+        "comments": len(valid_comments),
+        "total": len(valid_posts) + len(valid_comments),
+        "valid_posts": sum(1 for p in valid_posts if not p["_is_deleted"]),
+        "valid_comments": sum(1 for c in valid_comments if not c["_is_deleted"]),
         "valid_total": sum(1 for i in all_valid_items if not i["_is_deleted"]),
     }
 

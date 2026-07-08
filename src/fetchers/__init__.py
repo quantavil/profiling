@@ -7,6 +7,7 @@ def fetch_listing(username, kind, limit=1000, source="all"):
     """kind: 'submitted' or 'comments'."""
     items = []
     
+    # Fetch Candidate items from each requested source
     if source in ("all", "reddit"):
         print(f"Fetching {kind} from old.reddit.com...")
         scraped_items = fetch_listing_old_reddit(username, kind, limit)
@@ -35,4 +36,15 @@ def fetch_listing(username, kind, limit=1000, source="all"):
                     items.append(item)
                     existing_names.add(name)
             
+    # Chronological sort (newest first) based on float representation of created_utc
+    def get_created_utc(item):
+        cu = item.get("created_utc")
+        if cu is None:
+            return 0
+        try:
+            return float(cu)
+        except (ValueError, TypeError):
+            return 0
+
+    items.sort(key=get_created_utc, reverse=True)
     return items[:limit]
