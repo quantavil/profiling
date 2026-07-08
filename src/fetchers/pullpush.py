@@ -38,10 +38,15 @@ def fetch_listing_pullpush(username, kind, limit=1000):
             break
             
         for child in children:
+            if "created_utc" in child:
+                try:
+                    child["created_utc"] = int(child["created_utc"])
+                except (ValueError, TypeError):
+                    pass
             child["fetched_from"] = "pullpush"
             items.append(child)
             
-        valid_utcs = [c["created_utc"] for c in children if c.get("created_utc")]
+        valid_utcs = [c["created_utc"] for c in children if isinstance(c.get("created_utc"), int)]
         if not valid_utcs:
             break
         before = min(valid_utcs)
