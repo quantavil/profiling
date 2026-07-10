@@ -1,5 +1,5 @@
 import unittest
-from src.utils import parse_reddit_score, escape_markdown, is_deleted_or_removed, _get_fullname
+from profiling.utils import parse_reddit_score, escape_markdown, is_deleted_or_removed, _get_fullname
 
 class TestUtils(unittest.TestCase):
     def test_parse_reddit_score(self):

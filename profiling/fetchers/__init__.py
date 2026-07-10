@@ -12,7 +12,14 @@ def fetch_listing(username, kind, limit=1000, source="all"):
         print(f"Fetching {kind} from old.reddit.com...")
         scraped_items = fetch_listing_old_reddit(username, kind, limit)
         if scraped_items:
-            items.extend(scraped_items)
+            seen = set()
+            unique_scraped = []
+            for item in scraped_items:
+                name = _get_fullname(item, kind)
+                if name and name not in seen:
+                    unique_scraped.append(item)
+                    seen.add(name)
+            items.extend(unique_scraped)
             
     if source in ("all", "pullpush"):
         print(f"Fetching {kind} from Pullpush API...")

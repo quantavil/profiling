@@ -1,5 +1,5 @@
 import unittest
-from src.analyzer import score_stats, estimate_tz, analyse
+from profiling.analyzer import score_stats, estimate_tz, analyse
 
 class TestAnalyzer(unittest.TestCase):
     def test_score_stats(self):

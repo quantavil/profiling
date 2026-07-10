@@ -2,18 +2,29 @@ import json
 import sys
 import time
 import urllib.request
-from ..config import HEADERS
+from ..config import get_headers
 
-def fetch_listing_arctic_shift(username, kind, limit=1000):
-    endpoint = "posts" if kind == "submitted" else "comments"
+def fetch_listing_archive(username, kind, limit, api_type):
+    """
+    api_type: 'pullpush' or 'arctic'
+    """
+    if api_type == "pullpush":
+        endpoint = "submission" if kind == "submitted" else "comment"
+        base_url = f"https://api.pullpush.io/reddit/search/{endpoint}/?author={username}&size=100"
+        source_name = "pullpush"
+    else:
+        endpoint = "posts" if kind == "submitted" else "comments"
+        base_url = f"https://arctic-shift.photon-reddit.com/api/{endpoint}/search?author={username}&limit=100"
+        source_name = "arctic"
+        
     items = []
     before = None
-    headers = HEADERS
+    headers = get_headers()
     retries = 3
     pause = 2
     
     while len(items) < limit:
-        url = f"https://arctic-shift.photon-reddit.com/api/{endpoint}/search?author={username}&limit=100"
+        url = base_url
         if before:
             url += f"&before={before}"
             
@@ -25,12 +36,12 @@ def fetch_listing_arctic_shift(username, kind, limit=1000):
                     data = json.loads(resp.read().decode("utf-8"))
                     break
             except Exception as e:
-                print(f"  [Arctic Shift] Attempt {attempt} failed: {e}", file=sys.stderr)
+                print(f"  [{source_name.capitalize()}] Attempt {attempt} failed: {e}", file=sys.stderr)
                 if attempt < retries:
                     time.sleep(pause * attempt)
                     
         if not data:
-            print(f"  [Arctic Shift] Failed to fetch {url} after {retries} attempts.", file=sys.stderr)
+            print(f"  [{source_name.capitalize()}] Failed to fetch {url} after {retries} attempts.", file=sys.stderr)
             break
             
         children = data.get("data", [])
@@ -43,14 +54,20 @@ def fetch_listing_arctic_shift(username, kind, limit=1000):
                     child["created_utc"] = int(child["created_utc"])
                 except (ValueError, TypeError):
                     pass
-            child["fetched_from"] = "arctic"
+            child["fetched_from"] = source_name
             items.append(child)
             
         valid_utcs = [c["created_utc"] for c in children if isinstance(c.get("created_utc"), int)]
         if not valid_utcs:
             break
-        before = min(valid_utcs)
-        print(f"  [Arctic Shift] {len(items)} fetched...")
+            
+        current_min_utc = min(valid_utcs)
+        if before is not None and current_min_utc >= before:
+            # Prevent infinite loop if API returns inclusive or duplicate results
+            break
+        before = current_min_utc
+        
+        print(f"  [{source_name.capitalize()}] {len(items)} fetched...")
         if len(children) < 100:
             break
             

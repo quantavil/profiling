@@ -1,8 +1,19 @@
 import re
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
-}
+_CUSTOM_USER_AGENT = None
+
+def set_custom_user_agent(ua: str):
+    global _CUSTOM_USER_AGENT
+    _CUSTOM_USER_AGENT = ua
+
+def get_headers() -> dict:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+    }
+    if _CUSTOM_USER_AGENT:
+        headers["User-Agent"] = _CUSTOM_USER_AGENT
+    return headers
+
 REDDIT_BASE = "https://www.reddit.com"
 
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]

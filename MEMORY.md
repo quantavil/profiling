@@ -5,7 +5,7 @@ A Python package (`src/`) that analyzes public posts and comments for a given Re
 
 ## Structure
 /home/quantavil/Documents/Project/profiling/
-├── src/             # Package source containing all modular subpackages and configurations.
+├── profiling/       # Package source containing all modular subpackages and configurations (renamed from src/).
 ├── static/          # Static assets directory.
 │   ├── index.html   # Premium HTML5 entrypoint and layout template.
 │   ├── css/
@@ -47,3 +47,4 @@ A Python package (`src/`) that analyzes public posts and comments for a given Re
 - API candidates list was sliced before sorting chronologically, which discarded older historical/deleted posts; fixed by sorting descending and then slicing.
 - Web browsers cached older API JSON responses (which had old data layouts) and stale app.js scripts; fixed by appending query version and timestamp parameters (?t=... and ?v=2) to fetches and static script imports, and implementing global Cache-Control HTTP response middleware in FastAPI.
 - SPA state (like active profile) was cleared on page refresh, resetting back to home; fixed by implementing lightweight, dependency-free Hash-based routing (#/user/username) listening to window.hashchange events.
+- Accidental replacement in `output/spez_profile.md` instead of `walkthrough.md` due to target file name copy-paste error; fixed by re-running the CLI command to restore the file and applying changes to the correct walkthrough file path.

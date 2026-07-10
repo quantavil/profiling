@@ -19,6 +19,3 @@ profiling = "profiling.cli:main"
 
 [tool.setuptools]
 packages = ["profiling", "profiling.fetchers"]
-
-[tool.setuptools.package-dir]
-"profiling" = "src"

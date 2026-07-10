@@ -4,7 +4,18 @@ from .config import STOPWORDS, WORD_RE
 from .utils import is_deleted_or_removed, _hour_weekday
 
 def score_stats(items):
-    scores = [i.get("score", 0) or 0 for i in items]
+    scores = []
+    for i in items:
+        score_val = i.get("score")
+        if score_val is None:
+            score_val = 0
+        else:
+            try:
+                score_val = int(score_val)
+            except (ValueError, TypeError):
+                score_val = 0
+        scores.append(score_val)
+        
     if not scores:
         return {}
     return {
@@ -100,7 +111,7 @@ def analyse(about, posts, comments):
                 if link_clean:
                     pl = f"/r/{sub}/comments/{link_clean}/_/{c_id}/"
                 else:
-                    pl = f"/r/{sub}/comments/{c_id}/"
+                    pl = f"/comments/{c_id}/"
         if pl and not pl.startswith("/"):
             pl = "/" + pl
         c["permalink"] = pl
@@ -122,9 +133,12 @@ def analyse(about, posts, comments):
         first, last = min(ts), max(ts)
         prof["first_activity_utc"] = first
         prof["last_activity_utc"] = last
-        span_days = (last - first) / 86400 or 1
+        span_days = (last - first) / 86400
         prof["active_span_days"] = round(span_days, 1)
-        prof["items_per_day"] = round(len(all_valid_items) / span_days, 2)
+        if span_days > 0:
+            prof["items_per_day"] = round(len(all_valid_items) / span_days, 2)
+        else:
+            prof["items_per_day"] = len(all_valid_items)
 
     prof["counts"] = {
         "posts": len(valid_posts),
@@ -187,7 +201,7 @@ def analyse(about, posts, comments):
     prof["tz_estimate_combined"] = estimate_tz(prof["hour_totals_combined"])
 
     # --- interest keywords from user's own text ---
-    def get_word_counter(posts_list, comments_list):
+    def get_posts_word_counter(posts_list):
         words = Counter()
         for p in posts_list:
             if p.get("_is_deleted"):
@@ -196,6 +210,10 @@ def analyse(about, posts, comments):
                 for m in WORD_RE.findall((p.get(field) or "").lower()):
                     if m not in STOPWORDS:
                         words[m] += 1
+        return words
+
+    def get_comments_word_counter(comments_list):
+        words = Counter()
         for c in comments_list:
             if c.get("_is_deleted"):
                 continue
@@ -204,8 +222,8 @@ def analyse(about, posts, comments):
                     words[m] += 1
         return words
 
-    posts_word_counter = get_word_counter(valid_posts, [])
-    comments_word_counter = get_word_counter([], valid_comments)
+    posts_word_counter = get_posts_word_counter(valid_posts)
+    comments_word_counter = get_comments_word_counter(valid_comments)
     combined_word_counter = posts_word_counter + comments_word_counter
 
     prof["top_keywords_posts"] = posts_word_counter.most_common(40)

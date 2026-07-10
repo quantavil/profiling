@@ -56,10 +56,14 @@ def _get_fullname(item: dict, kind: str) -> str | None:
         return name
     item_id = item.get("id")
     if item_id:
+        item_id_str = str(item_id)
+        # If the item_id already starts with any valid Reddit prefix (t1_ to t5_), extract the base ID first
+        match = re.match(r"^t[1-5]_(.+)$", item_id_str)
+        if match:
+            item_id_str = match.group(1)
+            
         prefix = "t3_" if kind == "submitted" else "t1_"
-        if not str(item_id).startswith(prefix):
-            return f"{prefix}{item_id}"
-        return item_id
+        return f"{prefix}{item_id_str}"
     return None
 
 

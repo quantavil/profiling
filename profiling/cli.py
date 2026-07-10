@@ -4,7 +4,7 @@ import re
 import sys
 from pathlib import Path
 
-from .config import HEADERS
+from .config import set_custom_user_agent
 from .fetchers.old_reddit import fetch_about
 from .fetchers import fetch_listing
 from .analyzer import analyse
@@ -17,10 +17,11 @@ def load_dump(path):
     if isinstance(data, dict):
         posts = data.get("posts_raw", [])
         comments = data.get("comments_raw", [])
-        return posts, comments
+        about = data.get("about", None)
+        return posts, comments, about
     posts = [i for i in data if i.get("type") == "post"]
     comments = [i for i in data if i.get("type") == "comment"]
-    return posts, comments
+    return posts, comments, None
 
 
 def main():
@@ -38,15 +39,17 @@ def main():
     outdir.mkdir(parents=True, exist_ok=True)
 
     if args.user_agent:
-        HEADERS["User-Agent"] = args.user_agent
+        set_custom_user_agent(args.user_agent)
 
     if args.infile:
-        posts, comments = load_dump(args.infile)
+        posts, comments, about = load_dump(args.infile)
         
         # Robust username derivation from infile name
         stem = Path(args.infile).stem
-        parts = stem.split("_")
-        derived_username = parts[0] if parts else stem
+        derived_username = stem
+        for suffix in ("_profile", "_dump", "_export", "_raw"):
+            if derived_username.endswith(suffix):
+                derived_username = derived_username.removesuffix(suffix)
         
         if derived_username.lower() in ("data", "export", "reddit", "profile", "posts", "comments", "dump"):
             username = args.username or "unknown_user"
@@ -54,11 +57,13 @@ def main():
         else:
             username = args.username or derived_username
             
-        about = fetch_about(username) if username else None
+        # Avoid redundant live fetch of 'about' if it was retrieved from local dump
+        if not about and username:
+            about = fetch_about(username)
     else:
         if not args.username:
             p.error("provide a username or --infile")
-        username = args.username.strip().lstrip("u/")
+        username = args.username.strip().removeprefix("/u/").removeprefix("u/")
         
     # Username regex validation (guards against path traversal)
     if not re.match(r"^[A-Za-z0-9_-]{3,20}$", username):

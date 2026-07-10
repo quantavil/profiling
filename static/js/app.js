@@ -26,25 +26,20 @@ function dashboardApp() {
         readerPageSize: 10,
         expandedItems: [],
         
-        // Helpers
-        weekdays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-        testUsers: ['spez', 'kn0thing', 'shitty_watercolour', 'poem_for_your_sprog', 'vargas'],
+        // Performance Optimized State
+        filteredItems: [],
+        maxHeatmapVal: 0,
         
-        // Loading simulation steps
+        // Dynamic Header UTC Clock
+        currentUTC: '',
+        
+        // Loading Log State
         loadingStep: 'Initializing...',
         loadingInterval: null,
-        loadingStepIdx: 0,
-        loadingSteps: [
-            'Contacting backend server...',
-            'Fetching account statistics from old.reddit.com...',
-            'Querying Pullpush archive database (api.pullpush.io)...',
-            'Querying Arctic Shift API backend for historical posts...',
-            'Merging data feeds and identifying fullnames...',
-            'Deduplicating entries to build absolute listing trace...',
-            'Running keyword frequency algorithms & ignoring stop-words...',
-            'Estimating sleep cycles and calculating UTC offset heuristics...',
-            'Synthesizing behavioral summary and caching...'
-        ],
+        loadingSeconds: 0,
+        
+        // Helpers
+        weekdays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
 
         init() {
             // Listen for hash changes
@@ -70,14 +65,32 @@ function dashboardApp() {
                         lucide.createIcons();
                     });
                 }
+                this.updateFilteredItems();
+                this.updateMaxHeatmapVal();
+            });
+            this.$watch('heatmapTab', () => {
+                this.updateMaxHeatmapVal();
             });
             
-            // Update icons when pagination or tabs update
+            // Watchers for filtering and pagination updates
+            this.$watch('readerTab', () => { this.readerPage = 1; this.updateFilteredItems(); this.refreshIcons(); });
+            this.$watch('readerSort', () => { this.readerPage = 1; this.updateFilteredItems(); this.refreshIcons(); });
+            this.$watch('readerSearch', () => { this.readerPage = 1; this.updateFilteredItems(); this.refreshIcons(); });
+            this.$watch('keywordFilter', () => { this.readerPage = 1; this.updateFilteredItems(); this.refreshIcons(); });
             this.$watch('readerPage', () => this.refreshIcons());
-            this.$watch('readerTab', () => { this.readerPage = 1; this.refreshIcons(); });
-            this.$watch('readerSort', () => { this.readerPage = 1; this.refreshIcons(); });
-            this.$watch('readerSearch', () => { this.readerPage = 1; this.refreshIcons(); });
-            this.$watch('keywordFilter', () => { this.readerPage = 1; this.refreshIcons(); });
+            
+            // Initialize UTC time and update it every second
+            this.updateUTC();
+            setInterval(() => this.updateUTC(), 1000);
+        },
+
+        updateUTC() {
+            const date = new Date();
+            this.currentUTC = date.toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+        },
+
+        getCurrentUTCDateTime() {
+            return this.currentUTC;
         },
 
         handleRoute() {
@@ -91,7 +104,10 @@ function dashboardApp() {
                 if (this.profile) {
                     this.profile = null;
                 }
-                this.loadSavedProfiles();
+                // Only load saved profiles if they haven't been loaded yet to prevent redundant API calls
+                if (this.savedProfiles.length === 0) {
+                    this.loadSavedProfiles();
+                }
             }
         },
 
@@ -102,12 +118,12 @@ function dashboardApp() {
         },
 
         startLoadingLogs() {
-            this.loadingStepIdx = 0;
-            this.loadingStep = this.loadingSteps[0];
+            this.loadingSeconds = 0;
+            this.loadingStep = `Fetching and analyzing public activity... (0s elapsed)`;
             this.loadingInterval = setInterval(() => {
-                this.loadingStepIdx = (this.loadingStepIdx + 1) % this.loadingSteps.length;
-                this.loadingStep = this.loadingSteps[this.loadingStepIdx];
-            }, 1800);
+                this.loadingSeconds++;
+                this.loadingStep = `Fetching and analyzing public activity... (${this.loadingSeconds}s elapsed)`;
+            }, 1000);
         },
 
         stopLoadingLogs() {
@@ -263,15 +279,17 @@ function dashboardApp() {
             }
         },
 
-        getCellStyle(count) {
+        updateMaxHeatmapVal() {
             const grid = this.activeHeatmapData;
-            const maxVal = Math.max(...grid.flatMap(row => row));
-            
+            this.maxHeatmapVal = Math.max(...grid.flatMap(row => row), 0);
+        },
+
+        getCellStyle(count) {
             if (count === 0) {
                 return 'background-color: rgba(35, 39, 49, 0.15); border: 1px solid rgba(35, 39, 49, 0.35);';
             }
             
-            const ratio = maxVal > 0 ? (count / maxVal) : 0;
+            const ratio = this.maxHeatmapVal > 0 ? (count / this.maxHeatmapVal) : 0;
             // Opacity between 0.15 and 1.0
             const opacity = 0.15 + (0.85 * ratio);
             
@@ -311,8 +329,11 @@ function dashboardApp() {
             return (this.profile.posts_raw?.length || 0) + (this.profile.comments_raw?.length || 0);
         },
 
-        get filteredItems() {
-            if (!this.profile) return [];
+        updateFilteredItems() {
+            if (!this.profile) {
+                this.filteredItems = [];
+                return;
+            }
             
             let items = [];
             const posts = this.profile.posts_raw || [];
@@ -358,7 +379,7 @@ function dashboardApp() {
                 }
             });
             
-            return items;
+            this.filteredItems = items;
         },
 
         get paginatedItems() {
@@ -480,11 +501,6 @@ function dashboardApp() {
             const hours = Math.floor(absOffset);
             const minutes = Math.round((absOffset - hours) * 60);
             return `UTC${sign}${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-        },
-
-        getCurrentUTCDateTime() {
-            const date = new Date();
-            return date.toISOString().replace('T', ' ').substring(0, 16) + ' UTC';
         },
 
         formatRelativeTime(epochSeconds) {

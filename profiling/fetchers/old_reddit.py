@@ -3,31 +3,31 @@ import time
 from datetime import datetime
 from ..utils import parse_reddit_score
 
-def fetch_about(username):
+def _fetch_url_with_retry(url, label="old.reddit", retries=3, pause=2):
     try:
         from scrapling.fetchers import StealthyFetcher
     except ImportError:
-        print("  scrapling is not installed. Fallback to old.reddit fetch_about skipped.", file=sys.stderr)
+        print(f"  scrapling is not installed. Fetch for {url} skipped.", file=sys.stderr)
         return None
         
+    for attempt in range(1, retries + 1):
+        try:
+            r = StealthyFetcher.fetch(url)
+            if r.status == 200:
+                return r
+            print(f"  [{label}] fetch attempt {attempt} failed: Status {r.status}", file=sys.stderr)
+            time.sleep(pause * attempt)
+        except Exception as e:
+            print(f"  [{label}] fetch attempt {attempt} failed with error: {e}", file=sys.stderr)
+            time.sleep(pause * attempt)
+    return None
+
+
+def fetch_about(username):
     try:
         url = f"https://old.reddit.com/user/{username}/"
-        
-        retries = 3
-        pause = 2
-        r = None
-        for attempt in range(1, retries + 1):
-            try:
-                r = StealthyFetcher.fetch(url)
-                if r.status == 200:
-                    break
-                print(f"  [old.reddit] fetch_about attempt {attempt} failed: Status {r.status}", file=sys.stderr)
-                time.sleep(pause * attempt)
-            except Exception as e:
-                print(f"  [old.reddit] fetch_about attempt {attempt} failed with error: {e}", file=sys.stderr)
-                time.sleep(pause * attempt)
-                
-        if not r or r.status != 200:
+        r = _fetch_url_with_retry(url, "old.reddit fetch_about")
+        if not r:
             return None
         
         # parse created_utc
@@ -75,32 +75,13 @@ def fetch_about(username):
 
 
 def fetch_listing_old_reddit(username, kind, limit=1000):
-    try:
-        from scrapling.fetchers import StealthyFetcher
-    except ImportError:
-        print("  scrapling is not installed. Fallback to old.reddit scraping skipped.", file=sys.stderr)
-        return []
     endpoint = "submitted" if kind == "submitted" else "comments"
     url = f"https://old.reddit.com/user/{username}/{endpoint}/"
     items = []
     
-    retries = 3
-    pause = 2
-    
     while len(items) < limit:
-        r = None
-        for attempt in range(1, retries + 1):
-            try:
-                r = StealthyFetcher.fetch(url)
-                if r.status == 200:
-                    break
-                print(f"  [old.reddit] fetch attempt {attempt} failed: Status {r.status}", file=sys.stderr)
-                time.sleep(pause * attempt)
-            except Exception as e:
-                print(f"  [old.reddit] fetch attempt {attempt} failed with error: {e}", file=sys.stderr)
-                time.sleep(pause * attempt)
-                
-        if not r or r.status != 200:
+        r = _fetch_url_with_retry(url, "old.reddit fetch_listing")
+        if not r:
             print(f"  [old.reddit] Failed to fetch {url}", file=sys.stderr)
             break
             

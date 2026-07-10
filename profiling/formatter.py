@@ -31,8 +31,11 @@ def render_markdown(username, prof):
     L.append(f"- Comments analysed: {c['comments']} (valid: {c['valid_comments']})")
     L.append(f"- Total items: {c['total']} (valid: {c['valid_total']})")
     if "active_span_days" in prof:
-        L.append(f"- Active span: {prof['active_span_days']} days "
-                 f"({prof['items_per_day']} items/day)")
+        if prof.get("active_span_days", 0) > 0:
+            L.append(f"- Active span: {prof['active_span_days']} days "
+                     f"({prof['items_per_day']} items/day)")
+        else:
+            L.append(f"- Active span: <1 day (all items share the same timestamp)")
     if prof.get("last_activity_utc"):
         last = datetime.fromtimestamp(prof["last_activity_utc"], tz=timezone.utc)
         L.append(f"- Most recent captured activity: {last:%Y-%m-%d %H:%M UTC}")
@@ -162,7 +165,7 @@ def render_markdown(username, prof):
             L.append(f"### {idx+1}. {escape_markdown(title)}{deleted_tag}\n")
             L.append(f"- **Date**: {p_date} | **Subreddit**: r/{sub} | **Score**: {score}{source_str} {link_str}")
             if selftext:
-                indented_text = "\n".join(f"  > {line}" for line in selftext.splitlines())
+                indented_text = "\n".join(f"  > {escape_markdown(line)}" for line in selftext.splitlines())
                 L.append(f"\n{indented_text}\n")
             else:
                 L.append("")
@@ -189,7 +192,7 @@ def render_markdown(username, prof):
             L.append(f"### {idx+1}. Comment in r/{sub}{deleted_tag}\n")
             L.append(f"- **Date**: {c_date} | **Score**: {score}{source_str} {link_str}")
             if body:
-                indented_body = "\n".join(f"  > {line}" for line in body.splitlines())
+                indented_body = "\n".join(f"  > {escape_markdown(line)}" for line in body.splitlines())
                 L.append(f"\n{indented_body}\n")
             else:
                 L.append("")

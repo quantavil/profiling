@@ -1,16 +1,17 @@
 import re
 import sys
 import json
+import asyncio
 from pathlib import Path
 import uvicorn
 from fastapi import FastAPI, Query, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from src.fetchers.old_reddit import fetch_about
-from src.fetchers import fetch_listing
-from src.analyzer import analyse
-from src.formatter import render_markdown
+from profiling.fetchers.old_reddit import fetch_about
+from profiling.fetchers import fetch_listing
+from profiling.analyzer import analyse
+from profiling.formatter import render_markdown
 
 app = FastAPI(
     title="Reddit Public Activity Analyser Dashboard API",
@@ -21,22 +22,24 @@ app = FastAPI(
 @app.middleware("http")
 async def add_no_cache_header(request: Request, call_next):
     response = await call_next(request)
-    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
+    # Only apply no-cache headers to API endpoints to allow static assets to be cached
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
     return response
 
 # Regex to prevent directory traversal and validate Reddit usernames
 USERNAME_REGEX = re.compile(r"^[A-Za-z0-9_-]{3,20}$")
 
 @app.get("/api/analyse")
-def api_analyse(
+async def api_analyse(
     username: str = Query(..., description="Reddit username to analyse"),
     limit: int = Query(250, ge=1, le=1000, description="Max items per listing type"),
     source: str = Query("all", pattern="^(all|reddit|pullpush|arctic)$", description="Data source to fetch from"),
 ):
     # Sanitize and validate username
-    username_clean = username.strip().lstrip("u/")
+    username_clean = username.strip().removeprefix("/u/").removeprefix("u/")
     if not USERNAME_REGEX.match(username_clean):
         raise HTTPException(
             status_code=400,
@@ -44,12 +47,12 @@ def api_analyse(
         )
 
     try:
-        # Fetch about page
-        about = fetch_about(username_clean)
+        # Fetch data sources concurrently using asyncio.to_thread to prevent threadpool starvation
+        about_task = asyncio.to_thread(fetch_about, username_clean)
+        posts_task = asyncio.to_thread(fetch_listing, username_clean, "submitted", limit, source)
+        comments_task = asyncio.to_thread(fetch_listing, username_clean, "comments", limit, source)
         
-        # Fetch listings (submitted posts & comments)
-        posts = fetch_listing(username_clean, "submitted", limit, source)
-        comments = fetch_listing(username_clean, "comments", limit, source)
+        about, posts, comments = await asyncio.gather(about_task, posts_task, comments_task)
         
         # If absolutely no data could be retrieved, inform the client
         if not posts and not comments and not about:
@@ -88,16 +91,16 @@ def api_analyse(
     except HTTPException as he:
         raise he
     except Exception as e:
-        # Print stack trace to stderr for server side debugging
+        # Print stack trace to stderr for server-side debugging, but do not leak details to clients
         import traceback
         traceback.print_exc()
         raise HTTPException(
             status_code=500,
-            detail=f"An error occurred during profiling: {str(e)}"
+            detail="An error occurred during profiling. Please check the server logs for details."
         )
 
 @app.get("/api/profiles")
-def api_list_profiles():
+async def api_list_profiles():
     """Lists lightweight metadata of all profiles saved in output folder."""
     outdir = Path("output")
     if not outdir.exists() or not outdir.is_dir():
@@ -136,10 +139,10 @@ def api_list_profiles():
     profiles.sort(key=lambda x: x["modified_at"], reverse=True)
     return profiles
 
-@app.get("/api/profiles/{username}")
-def api_get_saved_profile(username: str):
+@app.get("/api/profiles/{username:path}")
+async def api_get_saved_profile(username: str):
     """Retrieves a saved profile from the output directory directly (cached lookup)."""
-    username_clean = username.strip().lstrip("u/")
+    username_clean = username.strip().removeprefix("/u/").removeprefix("u/")
     if not USERNAME_REGEX.match(username_clean):
         raise HTTPException(
             status_code=400,
@@ -155,10 +158,10 @@ def api_get_saved_profile(username: str):
         
     return FileResponse(file_path)
 
-@app.delete("/api/profiles/{username}")
-def api_delete_saved_profile(username: str):
+@app.delete("/api/profiles/{username:path}")
+async def api_delete_saved_profile(username: str):
     """Deletes a saved profile (both JSON and MD report) from output directory."""
-    username_clean = username.strip().lstrip("u/")
+    username_clean = username.strip().removeprefix("/u/").removeprefix("u/")
     if not USERNAME_REGEX.match(username_clean):
         raise HTTPException(
             status_code=400,
@@ -184,10 +187,9 @@ def api_delete_saved_profile(username: str):
         
     return {"status": "success", "detail": f"Profile files for u/{username_clean} deleted successfully."}
 
-# Serve the static files
 # Serve index.html directly from root route
 @app.get("/")
-def read_index():
+async def read_index():
     return FileResponse("static/index.html")
 
 # Mount static folder
